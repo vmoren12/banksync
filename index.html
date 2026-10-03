@@ -11,6 +11,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="application-name" content="Banksync">
   <meta name="apple-mobile-web-app-title" content="Banksync">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
@@ -35,6 +36,9 @@
     <main id="view"></main>
   </div>
 
+  <button type="button" class="install" id="installBtn" hidden aria-label="Instalar Banksync" title="Instalar Banksync">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v11M7.5 9.5L12 14l4.5-4.5"/><path d="M4 15v5h16v-5"/></svg>
+  </button>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
   <dialog class="sheet" id="sheet" aria-label="Detalle"></dialog>
 

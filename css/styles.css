@@ -1245,6 +1245,72 @@ main {
   flex: 1;
 }
 
+/* ---------- instalar ---------- */
+
+.install {
+  position: fixed;
+  z-index: 15;
+  right: max(var(--gutter), calc((100vw - var(--col)) / 2 + var(--gutter)));
+  bottom: calc(16px + var(--bottom));
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border: 1px solid var(--rule-2);
+  border-radius: 2px;
+  background: var(--paper-2);
+  color: var(--ink);
+  box-shadow: 0 6px 18px -8px rgba(0, 0, 0, 0.25);
+  animation: install-in 0.4s var(--ease) 0.6s both;
+}
+.install:active {
+  background: var(--press);
+}
+.install svg {
+  width: 19px;
+  height: 19px;
+}
+.install.is-top {
+  bottom: auto;
+  width: 36px;
+  height: 36px;
+  box-shadow: none;
+}
+.install.is-top svg {
+  width: 17px;
+  height: 17px;
+}
+body.is-typing .install {
+  display: none;
+}
+@keyframes install-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+.steps {
+  margin: 4px 0 18px;
+  padding-left: 1.3em;
+  font-size: 15px;
+  line-height: 1.5;
+}
+.steps li + li {
+  margin-top: 10px;
+}
+.steps li::marker {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--muted);
+}
+.inline-icon {
+  width: 18px;
+  height: 18px;
+  vertical-align: -3px;
+  margin: 0 2px;
+}
+
 /* ---------- aviso ---------- */
 
 .toast {

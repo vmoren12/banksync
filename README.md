@@ -12,7 +12,7 @@ Anota tus gastos en segundos, desde el móvil, en una o varias cuentas. Comparte
 - **Cuentas compartidas**: un código, generado o elegido, o un enlace para enviar por mensaje.
 - **Sin registro, local primero**: todo vive en el navegador y funciona sin conexión. Solo las cuentas compartidas se sincronizan.
 - **Exportar e importar** en JSON (copia completa) y exportación a CSV para hojas de cálculo.
-- **Instalable** como app (PWA) y con modo oscuro automático.
+- **Instalable** como app (PWA): un botón discreto lo ofrece y desaparece al instalarla. En Android, Chrome y Edge se abre el diálogo nativo; en iPhone e iPad salen las instrucciones para *Añadir a pantalla de inicio*. Funciona sin conexión y el modo oscuro es automático.
 
 ## Cómo funciona
 
@@ -81,8 +81,10 @@ js/app.js               vistas, navegación e interacción
 js/store.js             estado local, persistencia, importación y exportación
 js/sync.js              cliente de sincronización con Supabase
 js/util.js              dinero, fechas, códigos y hash
+js/install.js           botón de instalación de la PWA
 js/config.js            URL y clave pública de Supabase
 sw.js                   service worker (uso sin conexión)
+manifest.webmanifest    manifiesto PWA (iconos, accesos directos, capturas)
 supabase/schema.sql     tablas y funciones del backend
 ```
 

@@ -1,5 +1,6 @@
 import * as store from './store.js';
 import * as sync from './sync.js';
+import { initInstall, place as placeInstall } from './install.js';
 import {
   esc, money, number, currencySymbol, parseAmount, isoDate, monthKey, shiftMonth, daysInMonth,
   monthName, dayLabel, ago, generateCode, normalizeCode, MIN_CODE, debounce, download, haptic, ts,
@@ -127,6 +128,7 @@ function render() {
   if (ui.route === 'add') renderAdd();
   else if (ui.route === 'ledger') renderLedger();
   else renderAccounts();
+  placeInstall();
 }
 
 /* =========================================================
@@ -1185,6 +1187,11 @@ if ('serviceWorker' in navigator && location.protocol === 'https:') {
     .catch((err) => console.warn('SW', err));
 }
 
+initInstall({
+  openSheet,
+  closeSheet,
+  anchor: () => (ui.route === 'add' ? $('#summary') : null),
+});
 store.compact();
 route();
 syncNow();
