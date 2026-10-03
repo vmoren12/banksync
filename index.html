@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+  <title>Banksync</title>
+  <meta name="description" content="Anota tus gastos en segundos. Varias cuentas, categorías y cuentas compartidas con un código. Sin registro, todo en local.">
+  <meta name="theme-color" content="#edeae2" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#121110" media="(prefers-color-scheme: dark)">
+  <meta name="color-scheme" content="light dark">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Banksync">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="preload" href="fonts/archivo.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="css/styles.css">
+  <script type="module" src="js/app.js"></script>
+</head>
+<body>
+  <div class="app">
+    <header class="top">
+      <button type="button" class="brand" id="brand" aria-label="Banksync. Pulsa para sincronizar">
+        <span class="wordmark">bank<span>sync</span></span>
+        <i class="sync-dot" id="syncDot" data-state="off" aria-hidden="true"></i>
+      </button>
+      <nav class="nav" aria-label="Secciones">
+        <a href="#/" data-view="add">Anotar</a>
+        <a href="#/libro" data-view="ledger">Libro</a>
+        <a href="#/cuentas" data-view="accounts">Cuentas</a>
+      </nav>
+    </header>
+    <main id="view"></main>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <dialog class="sheet" id="sheet" aria-label="Detalle"></dialog>
+
+  <noscript><p style="padding:24px">Banksync necesita JavaScript.</p></noscript>
+</body>
+</html>
