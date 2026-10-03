@@ -18,6 +18,7 @@ const icon = {
   back: '<svg viewBox="0 0 28 24" aria-hidden="true"><path d="M10 5h14v14H10l-7-7z"/><path d="M14 9l6 6M20 9l-6 6"/></svg>',
   plus: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>',
   close: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+  search: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6"/><path d="M15 15l5 5"/></svg>',
 };
 
 const ui = {
@@ -25,6 +26,9 @@ const ui = {
   month: monthKey(),
   ledgerAcc: null, // null = cuenta actual, 'all' = todas
   ledgerCat: null,
+  ledgerBy: null, // persona ('' = sin nombre)
+  ledgerQ: '',
+  keypad: true, // teclado desplegado en Anotar
   draft: { amount: '', note: '', cat: '', date: isoDate(), catTouched: false },
 };
 
@@ -142,6 +146,7 @@ function renderAdd() {
         <div class="tabs" id="accTabs" role="tablist" aria-label="Cuenta"></div>
         <div class="summary" id="summary"></div>
         <form class="entry" id="entryForm" autocomplete="off">
+          <button type="button" class="entry-handle" id="entryToggle" aria-controls="entryForm"><span></span></button>
           <output class="amount" id="amount" aria-live="polite"></output>
           <div class="meta-row">
             <input class="concept" id="concept" placeholder="Concepto" maxlength="80"
@@ -170,6 +175,18 @@ function renderAdd() {
   }
   paintAddMeta();
   paintAmount();
+  setKeypad(ui.keypad);
+}
+
+/** Despliega o pliega el teclado para dejar sitio a la lista de movimientos. */
+function setKeypad(open) {
+  ui.keypad = open;
+  $('.add', view)?.classList.toggle('is-collapsed', !open);
+  const t = $('#entryToggle');
+  if (!t) return;
+  t.setAttribute('aria-expanded', open);
+  t.setAttribute('aria-label', open ? 'Ocultar teclado' : 'Mostrar teclado');
+  placeInstall();
 }
 
 function paintAddMeta() {
@@ -193,7 +210,7 @@ function paintAddMeta() {
   const prevKey = shiftMonth(key, -1);
   const prevCut = `${prevKey}-${String(Math.min(day, daysInMonth(prevKey))).padStart(2, '0')}`;
   const prevSoFar = sumCents(list.filter((e) => e.date.startsWith(prevKey) && e.date <= prevCut));
-  const recent = [...list].sort((a, b) => ts(b.at) - ts(a.at)).slice(0, 8);
+  const recent = [...list].sort((a, b) => ts(b.at) - ts(a.at)).slice(0, 40);
   const cur = acc.currency;
 
   let budget = '';
@@ -234,6 +251,7 @@ function paintAddMeta() {
                 </button></li>`
               )
               .join('')}
+            <li class="recent-more"><a href="#/libro">Ver todo en el libro</a></li>
           </ul>`
         : ''
     }`;
@@ -406,6 +424,25 @@ function bindAdd() {
     const b = ev.target.closest('[data-edit]');
     if (b) entrySheet(b.dataset.edit);
   });
+
+  // plegar / desplegar el teclado: tocar el asa o el importe, o deslizar sobre ellos
+  $('#entryToggle').addEventListener('click', () => {
+    haptic();
+    setKeypad(!ui.keypad);
+  });
+  $('#amount').addEventListener('click', () => !ui.keypad && setKeypad(true));
+  let y0 = null;
+  for (const el of [$('#entryToggle'), $('#amount')]) {
+    el.addEventListener('touchstart', (e) => (y0 = e.touches[0].clientY), { passive: true });
+    el.addEventListener('touchend', (e) => {
+      if (y0 === null) return;
+      const dy = e.changedTouches[0].clientY - y0;
+      y0 = null;
+      if (Math.abs(dy) < 28) return;
+      e.preventDefault(); // evita el clic posterior
+      setKeypad(dy < 0);
+    });
+  }
 }
 
 function newCategoryInline(btn) {
@@ -445,6 +482,7 @@ function newCategoryInline(btn) {
 document.addEventListener('keydown', (e) => {
   if (ui.route !== 'add' || sheet.open || e.metaKey || e.ctrlKey || e.altKey) return;
   if (e.target.matches('input, textarea, select')) return;
+  if (!ui.keypad && /^[\d,.]$/.test(e.key)) setKeypad(true);
   if (/^\d$/.test(e.key)) press(e.key);
   else if (e.key === ',' || e.key === '.') press(',');
   else if (e.key === 'Backspace') press('back');
@@ -467,7 +505,77 @@ function ledgerScope() {
   return [a];
 }
 
+const NO_BY = 'Sin nombre';
+const fold = (s) => String(s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+const catOf = (e) => e.cat || NO_CAT;
+
+const sumBy = (list, keyFn) => {
+  const m = new Map();
+  for (const e of list) m.set(keyFn(e), (m.get(keyFn(e)) || 0) + e.amt);
+  return [...m.entries()].sort((a, b) => b[1] - a[1]);
+};
+
+function breakdownList(rows, total, cur, attr) {
+  return `<ol class="breakdown">
+    ${rows
+      .map(
+        ([k, v]) => `<li><button type="button" data-${attr}="${esc(k)}" style="--p:${total ? v / total : 0}">
+          <span class="bd-name">${esc(attr === 'by' ? k || NO_BY : k)}</span>
+          <span class="bd-pct">${total ? Math.round((v / total) * 100) : 0}%</span>
+          <span class="bd-amt">${money(v, cur)}</span>
+          <span class="bd-bar" aria-hidden="true"></span>
+        </button></li>`
+      )
+      .join('')}
+  </ol>`;
+}
+
+function chipRow(label, attr, values, selected, allLabel, fmt = (v) => v) {
+  return `<div class="fchips" role="group" aria-label="${label}">
+    <span class="fchips-label">${label}</span>
+    <button type="button" class="chip chip-s" data-${attr}-all aria-pressed="${selected === null}">${allLabel}</button>
+    ${values
+      .map((v) => `<button type="button" class="chip chip-s" data-${attr}="${esc(v)}" aria-pressed="${selected === v}">${esc(fmt(v))}</button>`)
+      .join('')}
+  </div>`;
+}
+
+/** Esqueleto estable (cabecera, cuentas y buscador); el cuerpo se repinta al filtrar. */
 function renderLedger() {
+  const accs = store.accounts();
+  const scope = ledgerScope();
+  const isNow = ui.month === monthKey();
+  const all = scope.length > 1;
+  view.innerHTML = `
+    <section class="ledger">
+      <header class="ledger-head">
+        <button type="button" class="icon-btn" data-month="-1" aria-label="Mes anterior">${icon.left}</button>
+        <h1>${esc(monthName(ui.month))}</h1>
+        <button type="button" class="icon-btn" data-month="1" aria-label="Mes siguiente" ${isNow ? 'disabled' : ''}>${icon.right}</button>
+      </header>
+      ${
+        accs.length > 1
+          ? `<div class="filter" role="tablist" aria-label="Cuenta">
+              <button type="button" role="tab" data-scope="all" aria-selected="${all}">Todas</button>
+              ${accs
+                .map((a) => `<button type="button" role="tab" data-scope="${a.id}" aria-selected="${!all && a.id === scope[0].id}">${esc(a.name)}</button>`)
+                .join('')}
+            </div>`
+          : ''
+      }
+      <label class="search">
+        ${icon.search}
+        <input type="search" id="ledgerSearch" value="${esc(ui.ledgerQ)}" placeholder="Buscar concepto, categoría o importe"
+               enterkeyhint="search" autocomplete="off" aria-label="Buscar">
+      </label>
+      <div id="ledgerBody"></div>
+    </section>`;
+  paintLedgerBody();
+}
+
+function paintLedgerBody() {
+  const body = $('#ledgerBody');
+  if (!body) return;
   const accs = store.accounts();
   const scope = ledgerScope();
   const ids = new Set(scope.map((a) => a.id));
@@ -478,136 +586,140 @@ function renderLedger() {
   const currencies = [...new Set(scope.map((a) => a.currency))];
   const single = currencies.length === 1;
   const cur = currencies[0];
+  const showAcc = scope.length > 1;
+  const isShared = (e) => Boolean(byId.get(e.acc).ledger);
 
-  // totales por moneda
-  const totals = new Map();
-  for (const e of monthList) {
-    const c = byId.get(e.acc).currency;
-    totals.set(c, (totals.get(c) || 0) + e.amt);
-  }
-  const totalTxt = currencies.length
-    ? [...(totals.size ? totals : new Map([[cur, 0]]))].map(([c, v]) => money(v, c)).join(' · ')
-    : money(0);
+  // Personas: solo en cuentas compartidas (cada movimiento guarda la firma de quien lo anotó).
+  const sharedScope = scope.some((a) => a.ledger);
+  if (!sharedScope) ui.ledgerBy = null;
+  const people = sharedScope ? [...new Set(monthList.filter(isShared).map((e) => e.by || ''))] : [];
+  const showPeople = people.some(Boolean) || ui.ledgerBy !== null;
 
-  // desglose por categoría
-  const cats = new Map();
-  for (const e of monthList) {
-    const c = e.cat || NO_CAT;
-    cats.set(c, (cats.get(c) || 0) + e.amt);
-  }
-  const total = sumCents(monthList);
-  const catRows = [...cats.entries()].sort((a, b) => b[1] - a[1]);
-  if (ui.ledgerCat && !cats.has(ui.ledgerCat)) ui.ledgerCat = null;
+  // Filtros
+  const q = fold(ui.ledgerQ.trim());
+  const matchQ = (e) => !q || fold(`${e.note} ${e.cat} ${e.by} ${number(e.amt)}`).includes(q);
+  const matchCat = (e) => ui.ledgerCat === null || catOf(e) === ui.ledgerCat;
+  const matchBy = (e) => ui.ledgerBy === null || (isShared(e) && (e.by || '') === ui.ledgerBy);
+  const list = monthList.filter((e) => matchQ(e) && matchCat(e) && matchBy(e));
+  const filtered = Boolean(q) || ui.ledgerCat !== null || ui.ledgerBy !== null;
 
-  // barras diarias
+  // Chips: incluyen el valor elegido aunque este mes no tenga movimientos.
+  const catChips = sumBy(monthList.filter((e) => matchQ(e) && matchBy(e)), catOf).map(([c]) => c);
+  if (ui.ledgerCat !== null && !catChips.includes(ui.ledgerCat)) catChips.push(ui.ledgerCat);
+  const byChips = [...people].sort((a, b) => (a === '' ? 1 : b === '' ? -1 : a.localeCompare(b, 'es')));
+  if (ui.ledgerBy !== null && !byChips.includes(ui.ledgerBy)) byChips.push(ui.ledgerBy);
+
+  // Cifras
+  const totalsTxt = (entries) => {
+    const m = new Map();
+    for (const e of entries) {
+      const c = byId.get(e.acc).currency;
+      m.set(c, (m.get(c) || 0) + e.amt);
+    }
+    return m.size ? [...m].map(([c, v]) => money(v, c)).join(' · ') : money(0, cur);
+  };
+  const total = sumCents(list);
+  const monthTotal = sumCents(monthList);
   const nDays = daysInMonth(key);
-  const perDay = Array(nDays).fill(0);
-  for (const e of monthList) perDay[Number(e.date.slice(8, 10)) - 1] += e.amt;
-  const maxDay = Math.max(...perDay, 1);
   const elapsed = isNow ? new Date().getDate() : nDays;
   const today = isNow ? new Date().getDate() : 0;
+  const perDay = Array(nDays).fill(0);
+  for (const e of list) perDay[Number(e.date.slice(8, 10)) - 1] += e.amt;
+  const maxDay = Math.max(...perDay, 1);
+  const biggest = list.reduce((m, e) => (!m || e.amt > m.amt ? e : m), null);
+  const sharedList = list.filter(isShared);
 
-  // agrupar por día
-  const visible = monthList
-    .filter((e) => !ui.ledgerCat || (e.cat || NO_CAT) === ui.ledgerCat)
-    .sort((a, b) => (a.date === b.date ? ts(b.at) - ts(a.at) : a.date < b.date ? 1 : -1));
+  // Agrupar por día
   const days = new Map();
-  for (const e of visible) {
+  for (const e of [...list].sort((a, b) => (a.date === b.date ? ts(b.at) - ts(a.at) : a.date < b.date ? 1 : -1))) {
     if (!days.has(e.date)) days.set(e.date, []);
     days.get(e.date).push(e);
   }
-  const showAcc = scope.length > 1;
 
-  view.innerHTML = `
-    <section class="ledger">
-      <header class="ledger-head">
-        <button type="button" class="icon-btn" data-month="-1" aria-label="Mes anterior">${icon.left}</button>
-        <h1>${esc(monthName(key))}</h1>
-        <button type="button" class="icon-btn" data-month="1" aria-label="Mes siguiente" ${isNow ? 'disabled' : ''}>${icon.right}</button>
-      </header>
+  body.innerHTML = `
+    ${catChips.length > 1 || ui.ledgerCat !== null ? chipRow('Categoría', 'cat', catChips, ui.ledgerCat, 'Todas') : ''}
+    ${showPeople ? chipRow('Persona', 'by', byChips, ui.ledgerBy, 'Todos', (v) => v || NO_BY) : ''}
 
+    <div class="ledger-total">
+      <p class="total">${totalsTxt(list)}</p>
       ${
-        accs.length > 1
-          ? `<div class="filter" role="tablist" aria-label="Cuenta">
-              <button type="button" role="tab" data-scope="all" aria-selected="${showAcc}">Todas</button>
-              ${accs
-                .map((a) => `<button type="button" role="tab" data-scope="${a.id}" aria-selected="${!showAcc && a.id === scope[0].id}">${esc(a.name)}</button>`)
-                .join('')}
-            </div>`
+        filtered
+          ? `<p class="summary-line muted">${
+              single && monthTotal ? `${Math.round((total / monthTotal) * 100)}% de ${money(monthTotal, cur)} del mes ` : ''
+            }<button type="button" class="link link-inline" data-clear>Quitar filtros</button></p>`
           : ''
       }
+    </div>
 
-      <div class="ledger-total">
-        <p class="total">${totalTxt}</p>
-        <p class="summary-line muted">${monthList.length} ${monthList.length === 1 ? 'movimiento' : 'movimientos'}${
-          single && total ? ` <span class="sep"></span> ${money(Math.round(total / elapsed), cur)} al día` : ''
-        }</p>
-      </div>
+    ${
+      single && list.length
+        ? `<dl class="stats">
+            <div><dt>Movimientos</dt><dd>${list.length}</dd></div>
+            <div><dt>Media</dt><dd>${money(Math.round(total / list.length), cur)}</dd></div>
+            <div><dt>Al día</dt><dd>${money(Math.round(total / elapsed), cur)}</dd></div>
+            <div><dt>Mayor</dt><dd><button type="button" data-edit="${biggest.id}">${money(biggest.amt, cur)}</button></dd></div>
+          </dl>`
+        : ''
+    }
 
+    ${
+      list.length
+        ? `<div class="days-chart" role="img" aria-label="Gasto diario">
+            ${perDay
+              .map((v, i) => `<span class="${i + 1 === today ? 'is-today' : ''}${i + 1 > elapsed ? ' is-future' : ''}" style="--h:${v / maxDay}"></span>`)
+              .join('')}
+          </div>
+          <div class="days-axis"><span>1</span><span>${Math.ceil(nDays / 2)}</span><span>${nDays}</span></div>`
+        : ''
+    }
+
+    ${
+      single && list.length && ui.ledgerCat === null
+        ? `<h2 class="section-title">Por categoría</h2>${breakdownList(sumBy(list, catOf), total, cur, 'cat')}`
+        : ''
+    }
+    ${
+      single && sharedList.length && showPeople && ui.ledgerBy === null
+        ? `<h2 class="section-title">Por persona</h2>${breakdownList(sumBy(sharedList, (e) => e.by || ''), sumCents(sharedList), cur, 'by')}`
+        : ''
+    }
+
+    <div class="days">
       ${
-        monthList.length
-          ? `<div class="days-chart" role="img" aria-label="Gasto diario">
-              ${perDay
-                .map(
-                  (v, i) =>
-                    `<span class="${i + 1 === today ? 'is-today' : ''}${i + 1 > elapsed ? ' is-future' : ''}" style="--h:${v / maxDay}"></span>`
-                )
-                .join('')}
-            </div>
-            <div class="days-axis"><span>1</span><span>${Math.ceil(nDays / 2)}</span><span>${nDays}</span></div>`
-          : ''
+        days.size
+          ? [...days.entries()]
+              .map(
+                ([date, entries]) => `
+            <section class="day">
+              <h3><span>${esc(dayLabel(date))}</span>${single ? `<span>${money(sumCents(entries), cur)}</span>` : ''}</h3>
+              <ul>
+                ${entries
+                  .map((e) => {
+                    const a = byId.get(e.acc);
+                    const meta = [e.note ? e.cat : '', showAcc ? a.name : '', a.ledger && e.by ? e.by : ''].filter(Boolean);
+                    return `<li><button type="button" class="row" data-edit="${e.id}">
+                      <span class="row-note">${esc(e.note || e.cat || 'Gasto')}</span>
+                      ${meta.length ? `<span class="row-meta">${meta.map(esc).join(' · ')}</span>` : ''}
+                      <span class="row-amt">${money(e.amt, a.currency)}</span>
+                    </button></li>`;
+                  })
+                  .join('')}
+              </ul>
+            </section>`
+              )
+              .join('')
+          : filtered && monthList.length
+            ? `<p class="empty">Ningún movimiento coincide.</p>`
+            : `<p class="empty">Nada anotado en ${esc(monthName(key, false).toLowerCase())}.${isNow ? ` <a href="#/">Anotar un gasto</a>` : ''}</p>`
       }
-
-      ${
-        catRows.length && single
-          ? `<ol class="breakdown">
-              ${catRows
-                .map(
-                  ([c, v]) => `<li><button type="button" data-cat="${esc(c)}" aria-pressed="${ui.ledgerCat === c}" style="--p:${v / total}">
-                    <span class="bd-name">${esc(c)}</span>
-                    <span class="bd-pct">${Math.round((v / total) * 100)}%</span>
-                    <span class="bd-amt">${money(v, cur)}</span>
-                    <span class="bd-bar" aria-hidden="true"></span>
-                  </button></li>`
-                )
-                .join('')}
-            </ol>`
-          : ''
-      }
-
-      ${ui.ledgerCat ? `<button type="button" class="filter-note" data-cat-clear>Solo ${esc(ui.ledgerCat)} ${icon.close}</button>` : ''}
-
-      <div class="days">
-        ${
-          days.size
-            ? [...days.entries()]
-                .map(
-                  ([date, list]) => `
-              <section class="day">
-                <h3><span>${esc(dayLabel(date))}</span>${single ? `<span>${money(sumCents(list), cur)}</span>` : ''}</h3>
-                <ul>
-                  ${list
-                    .map((e) => {
-                      const a = byId.get(e.acc);
-                      const meta = [e.note ? e.cat : '', showAcc ? a.name : '', a.ledger && e.by ? e.by : ''].filter(Boolean);
-                      return `<li><button type="button" class="row" data-edit="${e.id}">
-                        <span class="row-note">${esc(e.note || e.cat || 'Gasto')}</span>
-                        ${meta.length ? `<span class="row-meta">${meta.map(esc).join(' · ')}</span>` : ''}
-                        <span class="row-amt">${money(e.amt, a.currency)}</span>
-                      </button></li>`;
-                    })
-                    .join('')}
-                </ul>
-              </section>`
-                )
-                .join('')
-            : `<p class="empty">Nada anotado en ${esc(monthName(key, false).toLowerCase())}.${
-                isNow ? ` <a href="#/">Anotar un gasto</a>` : ''
-              }</p>`
-        }
-      </div>
-    </section>`;
+    </div>`;
 }
+
+view.addEventListener('input', (ev) => {
+  if (ev.target.id !== 'ledgerSearch') return;
+  ui.ledgerQ = ev.target.value;
+  paintLedgerBody();
+});
 
 view.addEventListener('click', (ev) => {
   if (ui.route !== 'ledger') return;
@@ -615,24 +727,42 @@ view.addEventListener('click', (ev) => {
   const m = t.closest('[data-month]');
   if (m) {
     ui.month = shiftMonth(ui.month, Number(m.dataset.month));
-    ui.ledgerCat = null;
     return renderLedger();
   }
   const s = t.closest('[data-scope]');
   if (s) {
     ui.ledgerAcc = s.dataset.scope;
     ui.ledgerCat = null;
+    ui.ledgerBy = null;
     if (s.dataset.scope !== 'all') store.setCurrent(s.dataset.scope);
     return renderLedger();
   }
+  if (t.closest('[data-clear]')) {
+    ui.ledgerCat = null;
+    ui.ledgerBy = null;
+    ui.ledgerQ = '';
+    $('#ledgerSearch').value = '';
+    return paintLedgerBody();
+  }
+  if (t.closest('[data-cat-all]')) {
+    ui.ledgerCat = null;
+    return paintLedgerBody();
+  }
+  if (t.closest('[data-by-all]')) {
+    ui.ledgerBy = null;
+    return paintLedgerBody();
+  }
   const c = t.closest('[data-cat]');
   if (c) {
+    haptic();
     ui.ledgerCat = ui.ledgerCat === c.dataset.cat ? null : c.dataset.cat;
-    return renderLedger();
+    return paintLedgerBody();
   }
-  if (t.closest('[data-cat-clear]')) {
-    ui.ledgerCat = null;
-    return renderLedger();
+  const b = t.closest('[data-by]');
+  if (b) {
+    haptic();
+    ui.ledgerBy = ui.ledgerBy === b.dataset.by ? null : b.dataset.by;
+    return paintLedgerBody();
   }
   const r = t.closest('[data-edit]');
   if (r) entrySheet(r.dataset.edit);
@@ -1137,6 +1267,8 @@ store.subscribe(() => {
   if (ui.route === 'add') {
     if ($('.add', view) && !$('.chip-input', view)) paintAddMeta();
     paintAmount();
+  } else if (ui.route === 'ledger' && document.activeElement?.id === 'ledgerSearch') {
+    paintLedgerBody();
   } else if (ui.route === 'accounts') {
     if (!view.contains(document.activeElement) || document.activeElement === document.body) renderAccounts();
   } else render();

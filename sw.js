@@ -1,6 +1,6 @@
 // Service worker: red primero (siempre la versión más reciente) y caché
 // como respaldo para que la app funcione sin conexión.
-const CACHE = 'banksync-v3';
+const CACHE = 'banksync-v4';
 const SHELL = [
   './',
   'index.html',

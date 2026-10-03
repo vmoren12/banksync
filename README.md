@@ -4,11 +4,11 @@ Anota tus gastos en segundos, desde el móvil, en una o varias cuentas. Comparte
 
 **App: <https://vmoren12.github.io/banksync/>**
 
-- **Teclado propio**: abres la app, tecleas el importe, pulsas *Anotar*. El concepto, la categoría y la fecha son opcionales.
+- **Teclado propio**: abres la app, tecleas el importe, pulsas *Anotar*. El concepto, la categoría y la fecha son opcionales. El teclado se pliega (tocando o deslizando el asa) para ver y recorrer los últimos movimientos.
 - **Varias cuentas**: solo con un nombre (Personal, Casa, Viaje…). No se piden datos bancarios.
 - **Categorías**: opcionales. Si repites un concepto, Banksync recuerda su categoría.
 - **Presupuesto mensual** por cuenta, con una marca del ritmo de gasto esperado para el día del mes.
-- **Libro mensual**: total, gasto diario, desglose por categoría y movimientos agrupados por día.
+- **Libro mensual**: buscador (concepto, categoría o importe), filtros por categoría y, en cuentas compartidas, por persona. Muestra total, número de movimientos, media, gasto diario, mayor gasto, desglose por categoría y por persona, y los movimientos agrupados por día.
 - **Cuentas compartidas**: un código, generado o elegido, o un enlace para enviar por mensaje.
 - **Sin registro, local primero**: todo vive en el navegador y funciona sin conexión. Solo las cuentas compartidas se sincronizan.
 - **Exportar e importar** en JSON (copia completa) y exportación a CSV para hojas de cálculo.
