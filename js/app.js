@@ -1174,7 +1174,15 @@ setInterval(() => ui.route === 'add' && document.visibilityState === 'visible' &
 navigator.storage?.persist?.().catch(() => {});
 
 if ('serviceWorker' in navigator && location.protocol === 'https:') {
-  navigator.serviceWorker.register('./sw.js').catch((err) => console.warn('SW', err));
+  // Si se instala una versión nueva, recarga para usarla (salvo que haya un importe a medias).
+  const hadController = Boolean(navigator.serviceWorker.controller);
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (hadController && !ui.draft.amount && !sheet.open) location.reload();
+  });
+  navigator.serviceWorker
+    .register('./sw.js', { updateViaCache: 'none' })
+    .then((reg) => document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && reg.update()))
+    .catch((err) => console.warn('SW', err));
 }
 
 store.compact();

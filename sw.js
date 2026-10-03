@@ -1,6 +1,6 @@
 // Service worker: red primero (siempre la versión más reciente) y caché
 // como respaldo para que la app funcione sin conexión.
-const CACHE = 'banksync-v1';
+const CACHE = 'banksync-v2';
 const SHELL = [
   './',
   'index.html',
@@ -17,7 +17,12 @@ const SHELL = [
 ];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  e.waitUntil(
+    caches
+      .open(CACHE)
+      .then((c) => c.addAll(SHELL.map((url) => new Request(url, { cache: 'reload' }))))
+      .then(() => self.skipWaiting())
+  );
 });
 
 self.addEventListener('activate', (e) => {
@@ -38,7 +43,8 @@ self.addEventListener('fetch', (e) => {
       const cache = await caches.open(CACHE);
       try {
         const res = await Promise.race([
-          fetch(request),
+          // no-cache: revalida siempre con el servidor (ignora el max-age de GitHub Pages)
+          fetch(request, { cache: 'no-cache' }),
           new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000)),
         ]);
         if (res.ok) cache.put(request, res.clone());
