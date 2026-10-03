@@ -71,6 +71,23 @@ export const shiftMonth = (key, delta) => {
   d.setMonth(d.getMonth() + delta);
   return monthKey(d);
 };
+export const addDays = (iso, n) => {
+  const d = fromIsoDate(iso);
+  d.setDate(d.getDate() + n);
+  return isoDate(d);
+};
+/** Días entre dos fechas ISO, ambos incluidos. */
+export const spanDays = (from, to) => Math.round((fromIsoDate(to) - fromIsoDate(from)) / 86400e3) + 1;
+/** Lunes de la semana de esa fecha, sin salir del mes. */
+export const weekStart = (iso = isoDate()) => {
+  const d = fromIsoDate(iso);
+  const monday = addDays(iso, -((d.getDay() + 6) % 7));
+  return monday < iso.slice(0, 8) + '01' ? iso.slice(0, 8) + '01' : monday;
+};
+export const shortDate = (iso, withYear = false) =>
+  fromIsoDate(iso)
+    .toLocaleDateString(LOCALE, withYear ? { day: 'numeric', month: 'short', year: 'numeric' } : { day: 'numeric', month: 'short' })
+    .replace(/\./g, '');
 export const daysInMonth = (key) => {
   const d = fromIsoDate(key + '-01');
   return new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();

@@ -3,7 +3,7 @@ import * as sync from './sync.js';
 import { initInstall, place as placeInstall } from './install.js';
 import {
   esc, money, number, currencySymbol, parseAmount, isoDate, monthKey, shiftMonth, daysInMonth,
-  monthName, dayLabel, ago, generateCode, normalizeCode, MIN_CODE, debounce, download, haptic, ts,
+  monthName, dayLabel, ago, generateCode, addDays, spanDays, weekStart, shortDate, normalizeCode, MIN_CODE, debounce, download, haptic, ts,
 } from './util.js';
 
 const $ = (s, el = document) => el.querySelector(s);
@@ -28,6 +28,11 @@ const ui = {
   ledgerCat: null,
   ledgerBy: null, // persona ('' = sin nombre)
   ledgerQ: '',
+  period: 'month', // month | week | fortnight | year | custom
+  year: new Date().getFullYear(),
+  rangeEnd: null, // fin de la ventana de 7/15 días (null = hoy)
+  from: null, // rango personalizado
+  to: null,
   keypad: true, // teclado desplegado en Anotar
   draft: { amount: '', note: '', cat: '', date: isoDate(), catTouched: false },
 };
@@ -211,6 +216,9 @@ function paintAddMeta() {
   const prevCut = `${prevKey}-${String(Math.min(day, daysInMonth(prevKey))).padStart(2, '0')}`;
   const prevSoFar = sumCents(list.filter((e) => e.date.startsWith(prevKey) && e.date <= prevCut));
   const recent = [...list].sort((a, b) => ts(b.at) - ts(a.at)).slice(0, 40);
+  const wStart = weekStart();
+  const weekSpent = sumCents(list.filter((e) => e.date >= wStart && e.date <= isoDate()));
+  const wLabel = dayLabel(wStart).toLowerCase();
   const cur = acc.currency;
 
   let budget = '';
@@ -234,6 +242,11 @@ function paintAddMeta() {
     <p class="eyebrow">${esc(monthName(key, false))} <span class="sep"></span> gastado</p>
     <p class="total">${money(spent, cur)}</p>
     ${budget}
+    ${
+      spent
+        ? `<p class="summary-line">Esta semana <b>${money(weekSpent, cur)}</b> <span class="muted">· desde ${esc(wLabel)}</span></p>`
+        : ''
+    }
     ${
       prevSoFar || spent
         ? `<p class="summary-line muted">${monthName(prevKey, false)} a día ${day}: ${money(prevSoFar, cur)}</p>`
@@ -506,8 +519,16 @@ function ledgerScope() {
 }
 
 const NO_BY = 'Sin nombre';
+const SERIES = 6; // colores categóricos (ver --s1…--s6 en styles.css); el resto se agrupa
 const fold = (s) => String(s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 const catOf = (e) => e.cat || NO_CAT;
+const PERIODS = [
+  ['month', 'Mes'],
+  ['week', '7 días'],
+  ['fortnight', '15 días'],
+  ['year', 'Año'],
+  ['custom', 'Fechas'],
+];
 
 const sumBy = (list, keyFn) => {
   const m = new Map();
@@ -515,17 +536,127 @@ const sumBy = (list, keyFn) => {
   return [...m.entries()].sort((a, b) => b[1] - a[1]);
 };
 
-function breakdownList(rows, total, cur, attr) {
+/** Periodo activo del libro: fechas, título y si admite flechas. */
+function ledgerRange() {
+  const today = isoDate();
+  if (ui.period === 'week' || ui.period === 'fortnight') {
+    const n = ui.period === 'week' ? 7 : 15;
+    const to = ui.rangeEnd || today;
+    const from = addDays(to, -(n - 1));
+    const live = to === today;
+    return {
+      from, to, nav: true, atEnd: live,
+      title: live ? `Últimos ${n} días` : `${shortDate(from)} – ${shortDate(to)}`,
+      sub: live ? `${shortDate(from)} – hoy` : '',
+    };
+  }
+  if (ui.period === 'year') {
+    const y = ui.year;
+    return { from: `${y}-01-01`, to: `${y}-12-31`, nav: true, atEnd: y >= new Date().getFullYear(), title: String(y), sub: '' };
+  }
+  if (ui.period === 'custom') {
+    ui.to ||= today;
+    ui.from ||= addDays(ui.to, -29);
+    if (ui.from > ui.to) [ui.from, ui.to] = [ui.to, ui.from];
+    return { from: ui.from, to: ui.to, nav: false, title: 'Personalizado', sub: '' };
+  }
+  const key = ui.month;
+  return {
+    from: `${key}-01`, to: `${key}-${String(daysInMonth(key)).padStart(2, '0')}`,
+    nav: true, atEnd: key >= monthKey(), title: monthName(key), sub: '',
+  };
+}
+
+function shiftRange(dir) {
+  if (ui.period === 'year') ui.year += dir;
+  else if (ui.period === 'week' || ui.period === 'fortnight') {
+    const n = ui.period === 'week' ? 7 : 15;
+    const next = addDays(ui.rangeEnd || isoDate(), dir * n);
+    ui.rangeEnd = next >= isoDate() ? null : next;
+  } else ui.month = shiftMonth(ui.month, dir);
+}
+
+/** Agrupa el periodo en barras: diarias (≤ 62 días), semanales (≤ 200) o mensuales. */
+function buckets(from, to) {
+  const span = spanDays(from, to);
+  const out = [];
+  if (span <= 62) {
+    for (let i = 0; i < span; i++) {
+      const d = addDays(from, i);
+      out.push({ from: d, to: d, label: from.slice(0, 7) === to.slice(0, 7) ? String(Number(d.slice(8))) : shortDate(d) });
+    }
+  } else if (span <= 200) {
+    for (let d = from; d <= to; d = addDays(d, 7)) {
+      const end = addDays(d, 6) > to ? to : addDays(d, 6);
+      out.push({ from: d, to: end, label: shortDate(d) });
+    }
+  } else {
+    for (let k = from.slice(0, 7); k <= to.slice(0, 7); k = shiftMonth(k, 1)) {
+      const a = `${k}-01`;
+      const b = `${k}-${String(daysInMonth(k)).padStart(2, '0')}`;
+      out.push({ from: a < from ? from : a, to: b > to ? to : b, label: monthName(k, false).slice(0, 3).toLowerCase() });
+    }
+  }
+  return out;
+}
+
+/** Colores estables dentro del periodo: no cambian al filtrar por persona, categoría o búsqueda. */
+function colorMap(rows, neutralKey) {
+  const m = new Map();
+  let i = 0;
+  for (const [k] of rows) {
+    if (k === neutralKey || i >= SERIES) continue;
+    m.set(k, `var(--s${++i})`);
+  }
+  return m;
+}
+const OTHER = 'var(--s-other)';
+
+function donut(rows, total, colors, attr, cur, label) {
+  if (!total) return '';
+  const slices = [];
+  const rest = [];
+  for (const [k, v] of rows) (colors.has(k) ? slices : rest).push([k, v]);
+  const items = slices.map(([k, v]) => ({ k, v, c: colors.get(k), name: attr === 'by' ? k || NO_BY : k }));
+  if (rest.length) {
+    const v = rest.reduce((s, [, x]) => s + x, 0);
+    const solo = rest.length === 1 ? rest[0][0] : null;
+    items.push({ k: solo, v, c: OTHER, name: solo !== null ? (attr === 'by' ? solo || NO_BY : solo) : 'Otras' });
+  }
+  const R = 70;
+  const C = 2 * Math.PI * R;
+  const gap = items.length > 1 ? 2 : 0; // separación de 2 px entre sectores
+  let off = 0;
+  const arcs = items
+    .map((s) => {
+      const len = (s.v / total) * C;
+      const pct = Math.round((s.v / total) * 100);
+      const arc = `<circle class="arc" r="${R}" cx="90" cy="90" style="stroke:${s.c}"
+        stroke-dasharray="${Math.max(len - gap, 0.6).toFixed(2)} ${C.toFixed(2)}" stroke-dashoffset="${(-off).toFixed(2)}"
+        ${s.k !== null ? `data-${attr}="${esc(s.k)}"` : ''} data-name="${esc(s.name)}" data-val="${esc(money(s.v, cur))}" data-pct="${pct}">
+        <title>${esc(s.name)}: ${esc(money(s.v, cur))} (${pct}%)</title></circle>`;
+      off += len;
+      return arc;
+    })
+    .join('');
+  return `<figure class="pie" data-total="${esc(money(total, cur))}" data-label="${esc(label)}">
+    <svg viewBox="0 0 180 180" role="img" aria-label="Gráfico de sectores ${esc(label.toLowerCase())}"><g transform="rotate(-90 90 90)">${arcs}</g></svg>
+    <figcaption class="pie-center" aria-hidden="true"><span class="pie-label">${esc(label)}</span><span class="pie-val">${esc(money(total, cur))}</span></figcaption>
+  </figure>`;
+}
+
+function breakdownList(rows, total, cur, attr, colors) {
   return `<ol class="breakdown">
     ${rows
-      .map(
-        ([k, v]) => `<li><button type="button" data-${attr}="${esc(k)}" style="--p:${total ? v / total : 0}">
-          <span class="bd-name">${esc(attr === 'by' ? k || NO_BY : k)}</span>
+      .map(([k, v]) => {
+        const c = colors.get(k) || OTHER;
+        return `<li><button type="button" data-${attr}="${esc(k)}" style="--p:${total ? v / total : 0};--c:${c}">
+          <span class="bd-name"><i class="bd-sw" aria-hidden="true"></i>${esc(attr === 'by' ? k || NO_BY : k)}</span>
           <span class="bd-pct">${total ? Math.round((v / total) * 100) : 0}%</span>
           <span class="bd-amt">${money(v, cur)}</span>
           <span class="bd-bar" aria-hidden="true"></span>
-        </button></li>`
-      )
+        </button></li>`;
+      })
       .join('')}
   </ol>`;
 }
@@ -540,19 +671,33 @@ function chipRow(label, attr, values, selected, allLabel, fmt = (v) => v) {
   </div>`;
 }
 
-/** Esqueleto estable (cabecera, cuentas y buscador); el cuerpo se repinta al filtrar. */
+/** Esqueleto estable (cabecera, periodo, cuentas y buscador); el cuerpo se repinta al filtrar. */
 function renderLedger() {
   const accs = store.accounts();
   const scope = ledgerScope();
-  const isNow = ui.month === monthKey();
+  const r = ledgerRange();
   const all = scope.length > 1;
   view.innerHTML = `
     <section class="ledger">
-      <header class="ledger-head">
-        <button type="button" class="icon-btn" data-month="-1" aria-label="Mes anterior">${icon.left}</button>
-        <h1>${esc(monthName(ui.month))}</h1>
-        <button type="button" class="icon-btn" data-month="1" aria-label="Mes siguiente" ${isNow ? 'disabled' : ''}>${icon.right}</button>
+      <header class="ledger-head${r.nav ? '' : ' no-nav'}">
+        <button type="button" class="icon-btn" data-shift="-1" aria-label="Periodo anterior" ${r.nav ? '' : 'hidden'}>${icon.left}</button>
+        <div class="ledger-title">
+          <h1>${esc(r.title)}</h1>
+          ${r.sub ? `<p>${esc(r.sub)}</p>` : ''}
+        </div>
+        <button type="button" class="icon-btn" data-shift="1" aria-label="Periodo siguiente" ${r.nav ? '' : 'hidden'} ${r.atEnd ? 'disabled' : ''}>${icon.right}</button>
       </header>
+      <div class="period" role="tablist" aria-label="Periodo">
+        ${PERIODS.map(([k, l]) => `<button type="button" role="tab" data-period="${k}" aria-selected="${ui.period === k}">${l}</button>`).join('')}
+      </div>
+      ${
+        ui.period === 'custom'
+          ? `<div class="range">
+              <label class="field"><span class="field-label">Desde</span><input type="date" id="rangeFrom" value="${r.from}" max="${isoDate()}"></label>
+              <label class="field"><span class="field-label">Hasta</span><input type="date" id="rangeTo" value="${r.to}" max="${isoDate()}"></label>
+            </div>`
+          : ''
+      }
       ${
         accs.length > 1
           ? `<div class="filter" role="tablist" aria-label="Cuenta">
@@ -580,9 +725,9 @@ function paintLedgerBody() {
   const scope = ledgerScope();
   const ids = new Set(scope.map((a) => a.id));
   const byId = new Map(accs.map((a) => [a.id, a]));
-  const key = ui.month;
-  const isNow = key === monthKey();
-  const monthList = store.allEntries().filter((e) => ids.has(e.acc) && e.date.startsWith(key));
+  const today = isoDate();
+  const r = ledgerRange();
+  const periodList = store.allEntries().filter((e) => ids.has(e.acc) && e.date >= r.from && e.date <= r.to);
   const currencies = [...new Set(scope.map((a) => a.currency))];
   const single = currencies.length === 1;
   const cur = currencies[0];
@@ -592,7 +737,7 @@ function paintLedgerBody() {
   // Personas: solo en cuentas compartidas (cada movimiento guarda la firma de quien lo anotó).
   const sharedScope = scope.some((a) => a.ledger);
   if (!sharedScope) ui.ledgerBy = null;
-  const people = sharedScope ? [...new Set(monthList.filter(isShared).map((e) => e.by || ''))] : [];
+  const people = sharedScope ? [...new Set(periodList.filter(isShared).map((e) => e.by || ''))] : [];
   const showPeople = people.some(Boolean) || ui.ledgerBy !== null;
 
   // Filtros
@@ -600,14 +745,18 @@ function paintLedgerBody() {
   const matchQ = (e) => !q || fold(`${e.note} ${e.cat} ${e.by} ${number(e.amt)}`).includes(q);
   const matchCat = (e) => ui.ledgerCat === null || catOf(e) === ui.ledgerCat;
   const matchBy = (e) => ui.ledgerBy === null || (isShared(e) && (e.by || '') === ui.ledgerBy);
-  const list = monthList.filter((e) => matchQ(e) && matchCat(e) && matchBy(e));
+  const list = periodList.filter((e) => matchQ(e) && matchCat(e) && matchBy(e));
   const filtered = Boolean(q) || ui.ledgerCat !== null || ui.ledgerBy !== null;
 
-  // Chips: incluyen el valor elegido aunque este mes no tenga movimientos.
-  const catChips = sumBy(monthList.filter((e) => matchQ(e) && matchBy(e)), catOf).map(([c]) => c);
+  // Chips: incluyen el valor elegido aunque el periodo no tenga movimientos.
+  const catChips = sumBy(periodList.filter((e) => matchQ(e) && matchBy(e)), catOf).map(([c]) => c);
   if (ui.ledgerCat !== null && !catChips.includes(ui.ledgerCat)) catChips.push(ui.ledgerCat);
   const byChips = [...people].sort((a, b) => (a === '' ? 1 : b === '' ? -1 : a.localeCompare(b, 'es')));
   if (ui.ledgerBy !== null && !byChips.includes(ui.ledgerBy)) byChips.push(ui.ledgerBy);
+
+  // Colores por categoría y persona, fijados con el periodo completo.
+  const catColors = colorMap(sumBy(periodList, catOf), NO_CAT);
+  const byColors = colorMap(sumBy(periodList.filter(isShared), (e) => e.by || ''), '');
 
   // Cifras
   const totalsTxt = (entries) => {
@@ -619,15 +768,17 @@ function paintLedgerBody() {
     return m.size ? [...m].map(([c, v]) => money(v, c)).join(' · ') : money(0, cur);
   };
   const total = sumCents(list);
-  const monthTotal = sumCents(monthList);
-  const nDays = daysInMonth(key);
-  const elapsed = isNow ? new Date().getDate() : nDays;
-  const today = isNow ? new Date().getDate() : 0;
-  const perDay = Array(nDays).fill(0);
-  for (const e of list) perDay[Number(e.date.slice(8, 10)) - 1] += e.amt;
-  const maxDay = Math.max(...perDay, 1);
+  const periodTotal = sumCents(periodList);
+  const elapsed = r.from > today ? 1 : spanDays(r.from, r.to < today ? r.to : today);
+  const bars = buckets(r.from, r.to).map((b) => ({ ...b, v: 0 }));
+  for (const e of list) {
+    const b = bars.find((x) => e.date >= x.from && e.date <= x.to);
+    if (b) b.v += e.amt;
+  }
+  const maxBar = Math.max(...bars.map((b) => b.v), 1);
   const biggest = list.reduce((m, e) => (!m || e.amt > m.amt ? e : m), null);
   const sharedList = list.filter(isShared);
+  const mid = bars[Math.floor((bars.length - 1) / 2)];
 
   // Agrupar por día
   const days = new Map();
@@ -635,6 +786,9 @@ function paintLedgerBody() {
     if (!days.has(e.date)) days.set(e.date, []);
     days.get(e.date).push(e);
   }
+
+  const catRows = sumBy(list, catOf);
+  const byRows = sumBy(sharedList, (e) => e.by || '');
 
   body.innerHTML = `
     ${catChips.length > 1 || ui.ledgerCat !== null ? chipRow('Categoría', 'cat', catChips, ui.ledgerCat, 'Todas') : ''}
@@ -645,7 +799,7 @@ function paintLedgerBody() {
       ${
         filtered
           ? `<p class="summary-line muted">${
-              single && monthTotal ? `${Math.round((total / monthTotal) * 100)}% de ${money(monthTotal, cur)} del mes ` : ''
+              single && periodTotal ? `${Math.round((total / periodTotal) * 100)}% de ${money(periodTotal, cur)} del periodo ` : ''
             }<button type="button" class="link link-inline" data-clear>Quitar filtros</button></p>`
           : ''
       }
@@ -664,23 +818,32 @@ function paintLedgerBody() {
 
     ${
       list.length
-        ? `<div class="days-chart" role="img" aria-label="Gasto diario">
-            ${perDay
-              .map((v, i) => `<span class="${i + 1 === today ? 'is-today' : ''}${i + 1 > elapsed ? ' is-future' : ''}" style="--h:${v / maxDay}"></span>`)
+        ? `<div class="days-chart" role="img" aria-label="Gasto por ${bars.length && bars[0].from === bars[0].to ? 'día' : 'periodo'}">
+            ${bars
+              .map(
+                (b) =>
+                  `<span class="${today >= b.from && today <= b.to ? 'is-today' : ''}${b.from > today ? ' is-future' : ''}" style="--h:${b.v / maxBar}" title="${esc(
+                    b.from === b.to ? shortDate(b.from) : `${shortDate(b.from)} – ${shortDate(b.to)}`
+                  )}: ${esc(money(b.v, cur))}"></span>`
+              )
               .join('')}
           </div>
-          <div class="days-axis"><span>1</span><span>${Math.ceil(nDays / 2)}</span><span>${nDays}</span></div>`
+          <div class="days-axis"><span>${esc(bars[0].label)}</span><span>${esc(mid.label)}</span><span>${esc(bars[bars.length - 1].label)}</span></div>`
         : ''
     }
 
     ${
       single && list.length && ui.ledgerCat === null
-        ? `<h2 class="section-title">Por categoría</h2>${breakdownList(sumBy(list, catOf), total, cur, 'cat')}`
+        ? `<h2 class="section-title">Por categoría</h2>
+           ${donut(catRows, total, catColors, 'cat', cur, 'Categorías')}
+           ${breakdownList(catRows, total, cur, 'cat', catColors)}`
         : ''
     }
     ${
       single && sharedList.length && showPeople && ui.ledgerBy === null
-        ? `<h2 class="section-title">Por persona</h2>${breakdownList(sumBy(sharedList, (e) => e.by || ''), sumCents(sharedList), cur, 'by')}`
+        ? `<h2 class="section-title">Por persona</h2>
+           ${donut(byRows, sumCents(sharedList), byColors, 'by', cur, 'Personas')}
+           ${breakdownList(byRows, sumCents(sharedList), cur, 'by', byColors)}`
         : ''
     }
 
@@ -691,7 +854,9 @@ function paintLedgerBody() {
               .map(
                 ([date, entries]) => `
             <section class="day">
-              <h3><span>${esc(dayLabel(date))}</span>${single ? `<span>${money(sumCents(entries), cur)}</span>` : ''}</h3>
+              <h3><span>${esc(dayLabel(date))}${date.slice(0, 4) !== today.slice(0, 4) ? ` ${date.slice(0, 4)}` : ''}</span>${
+                  single ? `<span>${money(sumCents(entries), cur)}</span>` : ''
+                }</h3>
               <ul>
                 ${entries
                   .map((e) => {
@@ -708,9 +873,9 @@ function paintLedgerBody() {
             </section>`
               )
               .join('')
-          : filtered && monthList.length
+          : filtered && periodList.length
             ? `<p class="empty">Ningún movimiento coincide.</p>`
-            : `<p class="empty">Nada anotado en ${esc(monthName(key, false).toLowerCase())}.${isNow ? ` <a href="#/">Anotar un gasto</a>` : ''}</p>`
+            : `<p class="empty">Nada anotado en este periodo.${r.to >= today ? ` <a href="#/">Anotar un gasto</a>` : ''}</p>`
       }
     </div>`;
 }
@@ -721,12 +886,47 @@ view.addEventListener('input', (ev) => {
   paintLedgerBody();
 });
 
+view.addEventListener('change', (ev) => {
+  if (ev.target.id === 'rangeFrom' || ev.target.id === 'rangeTo') {
+    if (!ev.target.value) return;
+    ui[ev.target.id === 'rangeFrom' ? 'from' : 'to'] = ev.target.value;
+    renderLedger();
+  }
+});
+
+// Sectores: al pasar por encima (o tocar sin soltar) el centro muestra el detalle.
+view.addEventListener('pointerover', (ev) => {
+  const arc = ev.target.closest?.('.arc');
+  if (!arc) return;
+  const pie = arc.closest('.pie');
+  pie.classList.add('is-hot');
+  $$('.arc', pie).forEach((a) => a.classList.toggle('is-on', a === arc));
+  $('.pie-label', pie).textContent = `${arc.dataset.name} · ${arc.dataset.pct}%`;
+  $('.pie-val', pie).textContent = arc.dataset.val;
+});
+view.addEventListener('pointerout', (ev) => {
+  const arc = ev.target.closest?.('.arc');
+  if (!arc) return;
+  const pie = arc.closest('.pie');
+  pie.classList.remove('is-hot');
+  $$('.arc', pie).forEach((a) => a.classList.remove('is-on'));
+  $('.pie-label', pie).textContent = pie.dataset.label;
+  $('.pie-val', pie).textContent = pie.dataset.total;
+});
+
 view.addEventListener('click', (ev) => {
   if (ui.route !== 'ledger') return;
   const t = ev.target;
-  const m = t.closest('[data-month]');
-  if (m) {
-    ui.month = shiftMonth(ui.month, Number(m.dataset.month));
+  const sh = t.closest('[data-shift]');
+  if (sh) {
+    shiftRange(Number(sh.dataset.shift));
+    return renderLedger();
+  }
+  const per = t.closest('[data-period]');
+  if (per) {
+    haptic();
+    ui.period = per.dataset.period;
+    ui.rangeEnd = null;
     return renderLedger();
   }
   const s = t.closest('[data-scope]');

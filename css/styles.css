@@ -29,6 +29,15 @@
   --signal: #dd4a1d;
   --scrim: rgba(23, 22, 20, 0.38);
 
+  /* series categóricas (validadas contra --paper) */
+  --s1: #dd4a1d;
+  --s2: #5da3fa;
+  --s3: #8f6302;
+  --s4: #3fbd66;
+  --s5: #8f4078;
+  --s6: #06bab3;
+  --s-other: #a39d92;
+
   --sans: 'Archivo', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
 
@@ -53,6 +62,13 @@
     --press: rgba(236, 232, 223, 0.08);
     --signal: #ff6a3d;
     --scrim: rgba(0, 0, 0, 0.55);
+    --s1: #ec5a2c;
+    --s2: #3585e3;
+    --s3: #906400;
+    --s4: #22aa54;
+    --s5: #a04485;
+    --s6: #07a7a1;
+    --s-other: #5f5a52;
     color-scheme: dark;
   }
 }
@@ -67,6 +83,13 @@
   --press: rgba(236, 232, 223, 0.08);
   --signal: #ff6a3d;
   --scrim: rgba(0, 0, 0, 0.55);
+  --s1: #ec5a2c;
+  --s2: #3585e3;
+  --s3: #906400;
+  --s4: #22aa54;
+  --s5: #a04485;
+  --s6: #07a7a1;
+  --s-other: #5f5a52;
   color-scheme: dark;
 }
 
@@ -750,6 +773,20 @@ main {
   justify-content: space-between;
   margin: 12px -8px 4px;
 }
+.ledger-title {
+  text-align: center;
+  min-width: 0;
+}
+.ledger-title p {
+  margin: 2px 0 0;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+}
+.ledger-head.no-nav {
+  justify-content: center;
+  min-height: 44px;
+}
 .ledger-head h1 {
   margin: 0;
   font-size: 19px;
@@ -782,6 +819,96 @@ main {
 }
 .filter button[aria-selected='true']::after {
   bottom: -1px;
+}
+
+.period {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  margin: 4px 0 10px;
+  border: 1px solid var(--rule-2);
+  border-radius: 2px;
+}
+.period button {
+  height: 34px;
+  font-size: 13px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.period button + button {
+  border-left: 1px solid var(--rule-2);
+}
+.period button[aria-selected='true'] {
+  background: var(--ink);
+  color: var(--paper);
+  font-weight: 600;
+}
+.range {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 10px;
+}
+
+.pie {
+  position: relative;
+  width: 176px;
+  margin: 6px auto 18px;
+}
+.pie svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.pie .arc {
+  fill: none;
+  stroke-width: 24;
+  stroke-linecap: butt;
+  cursor: pointer;
+  transition: opacity 0.15s, stroke-width 0.15s;
+}
+.pie.is-hot .arc {
+  opacity: 0.35;
+}
+.pie.is-hot .arc.is-on {
+  opacity: 1;
+  stroke-width: 30;
+}
+.pie-center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 0 40px;
+  text-align: center;
+  pointer-events: none;
+}
+.pie-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  white-space: nowrap;
+}
+.pie-val {
+  margin-top: 2px;
+  font-size: 16px;
+  font-weight: 680;
+  font-stretch: 110%;
+}
+.bd-sw {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  margin-right: 9px;
+  border-radius: 2px;
+  background: var(--c, var(--ink));
+  vertical-align: 1px;
 }
 
 .search {
@@ -976,7 +1103,7 @@ main {
   bottom: -1px;
   height: 2px;
   width: calc(var(--p) * 100%);
-  background: var(--ink);
+  background: var(--c, var(--ink));
 }
 .breakdown button[aria-pressed='true'] .bd-name {
   font-weight: 650;

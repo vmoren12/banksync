@@ -8,7 +8,8 @@ Anota tus gastos en segundos, desde el móvil, en una o varias cuentas. Comparte
 - **Varias cuentas**: solo con un nombre (Personal, Casa, Viaje…). No se piden datos bancarios.
 - **Categorías**: opcionales. Si repites un concepto, Banksync recuerda su categoría.
 - **Presupuesto mensual** por cuenta, con una marca del ritmo de gasto esperado para el día del mes.
-- **Libro mensual**: buscador (concepto, categoría o importe), filtros por categoría y, en cuentas compartidas, por persona. Muestra total, número de movimientos, media, gasto diario, mayor gasto, desglose por categoría y por persona, y los movimientos agrupados por día.
+- **Gasto semanal** en Anotar: desde el lunes (o desde el día 1 si la semana empezó el mes anterior).
+- **Libro**: periodos (mes, últimos 7 o 15 días, año o fechas a medida, con flechas para retroceder), buscador (concepto, categoría o importe), filtros por categoría y, en cuentas compartidas, por persona. Muestra total, número de movimientos, media, gasto diario, mayor gasto, gráficos de sectores y desglose por categoría y por persona, y los movimientos agrupados por día.
 - **Cuentas compartidas**: un código, generado o elegido, o un enlace para enviar por mensaje.
 - **Sin registro, local primero**: todo vive en el navegador y funciona sin conexión. Solo las cuentas compartidas se sincronizan.
 - **Exportar e importar** en JSON (copia completa) y exportación a CSV para hojas de cálculo.
